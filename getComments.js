@@ -3,6 +3,8 @@ const { Telegraf } = require("telegraf");
 const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const axios = require("axios");
+const express = require("express");
+const app = express();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const client = new TelegramClient(
@@ -142,3 +144,8 @@ bot.on("text", async (ctx) => {
 
 bot.launch();
 console.log("Бот запущений!");
+
+app.get("/", (req, res) => {
+  console.log("Request received!");
+  res.send("Bot is running!");
+});
