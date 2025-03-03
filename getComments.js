@@ -149,3 +149,8 @@ app.get("/", (req, res) => {
   console.log("Request received!");
   res.send("Bot is running!");
 });
+
+const PORT = process.env.PORT || 443;
+app.listen(PORT, () => {
+  console.log(`Server is running`);
+});
