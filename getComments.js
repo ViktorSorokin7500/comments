@@ -84,7 +84,7 @@ async function analyzeCommentsWithRetry(comments) {
       try {
         return JSON.parse(content);
       } catch (e) {
-        console.error("Відповідь не у форматі JSON:", content);
+        console.error("Відповідь не у форматі JSON:");
         return content;
       }
     } catch (error) {
