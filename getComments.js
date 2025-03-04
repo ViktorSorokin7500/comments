@@ -77,7 +77,7 @@ async function getAllComments(client, channel, postId) {
 }
 
 async function analyzeCommentsWithRetry(comments) {
-  const maxRetries = 3;
+  const maxRetries = 5;
   let attempts = 0;
 
   const prompt = `Проаналізуй подані коментарі та розподіли їх за категоріями (5-6 штук). Поверни JSON із масивом об’єктів: { title: "", description: "", percentage: 0 }. Відповідь має бути виключно українською мовою (заголовки та описи українською). У полі "description" надавай стислий але максимально детальний і розгорнутий опис змісту коментарів, що належать до кожної категорії. Процентне співвідношення (percentage) вказуй на основі частки коментарів у кожній категорії від загальної кількості. Ось коментарі: \n${comments
@@ -91,7 +91,7 @@ async function analyzeCommentsWithRetry(comments) {
         {
           model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 5000,
+          max_tokens: 10000,
           temperature: 0.7,
         },
         {
