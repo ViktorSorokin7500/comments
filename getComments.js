@@ -30,12 +30,21 @@ function sleep(ms) {
 }
 
 async function ensureClientConnected(client) {
-  if (!client.isConnected()) {
-    console.log("Клієнт відключений, підключаю...");
+  try {
+    const isConnected = await client.is_connected();
+    if (!isConnected) {
+      console.log("Клієнт відключений, підключаю...");
+      await client.connect();
+      console.log("Клієнт Telegram підключений.");
+    } else {
+      console.log("Клієнт уже підключений.");
+    }
+    return client;
+  } catch (error) {
+    console.error("Помилка перевірки підключення:", error);
     await client.connect();
-    console.log("Клієнт Telegram підключений.");
+    return client;
   }
-  return client;
 }
 
 async function getAllComments(client, channel, postId) {
@@ -90,7 +99,7 @@ async function analyzeCommentsWithRetry(comments) {
             Authorization: `Bearer ${TOGETHER_API_KEY}`,
             "Content-Type": "application/json",
           },
-          timeout: 120000,
+          timeout: 120000, // 2 хвилини
         }
       );
 
