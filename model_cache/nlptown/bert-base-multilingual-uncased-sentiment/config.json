@@ -1,8 +1,6 @@
 {
   "_num_labels": 5,
-  "architectures": [
-    "BertForSequenceClassification"
-  ],
+  "architectures": ["BertForSequenceClassification"],
   "attention_probs_dropout_prob": 0.1,
   "directionality": "bidi",
   "finetuning_task": "sentiment-analysis",
