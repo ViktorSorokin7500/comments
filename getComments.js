@@ -7,11 +7,15 @@ const express = require("express");
 const app = express();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+const session = new StringSession(process.env.STRING_SESSION || "");
 const client = new TelegramClient(
-  new StringSession(process.env.STRING_SESSION),
+  session,
   Number(process.env.API_ID),
   process.env.API_HASH,
-  { connectionRetries: 5, connectionTimeout: 60000 }
+  {
+    connectionRetries: 10,
+    connectionTimeout: 120000,
+  }
 );
 const TOGETHER_API_KEY = process.env.TOGETHER_API_KEY;
 
@@ -23,6 +27,15 @@ function parseTelegramLink(link) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function ensureClientConnected(client) {
+  if (!client.isConnected()) {
+    console.log("Клієнт відключений, підключаю...");
+    await client.connect();
+    console.log("Клієнт Telegram підключений.");
+  }
+  return client;
 }
 
 async function getAllComments(client, channel, postId) {
@@ -39,15 +52,16 @@ async function getAllComments(client, channel, postId) {
         offsetId,
       });
 
+      console.log(`Отримано ${messages.length} повідомлень у батчі ${i + 1}`);
       if (!messages || messages.length === 0) break;
       allMessages.push(...messages);
 
       offsetId = messages[messages.length - 1].id;
-
       await sleep(500);
     }
   } catch (error) {
     console.error("Помилка отримання коментарів:", error);
+    throw error;
   }
 
   return allMessages.map((msg) => msg.message).filter(Boolean);
@@ -68,7 +82,7 @@ async function analyzeCommentsWithRetry(comments) {
         {
           model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 10000,
+          max_tokens: 5000,
           temperature: 0.7,
         },
         {
@@ -76,15 +90,16 @@ async function analyzeCommentsWithRetry(comments) {
             Authorization: `Bearer ${TOGETHER_API_KEY}`,
             "Content-Type": "application/json",
           },
-          timeout: 90000,
+          timeout: 120000,
         }
       );
 
       const content = response.data.choices[0].message.content;
+      console.log("Отримано відповідь від Together API:", content);
       try {
         return JSON.parse(content);
       } catch (e) {
-        console.error("Відповідь не у форматі JSON:");
+        console.error("Відповідь не у форматі JSON:", content);
         return content;
       }
     } catch (error) {
@@ -104,22 +119,32 @@ async function analyzeCommentsWithRetry(comments) {
 
 client
   .connect()
-  .then(() => console.log("Клієнт Telegram підключений."))
-  .catch((error) => console.error("Помилка підключення клієнта:", error));
+  .then(() => {
+    process.env.STRING_SESSION = session.save();
+    console.log("Клієнт Telegram підключений при старті.");
+  })
+  .catch((error) =>
+    console.error("Помилка підключення клієнта при старті:", error)
+  );
 
 bot.start((ctx) =>
   ctx.reply("Вставте посилання на пост (https://t.me/channel/post)")
 );
 
 bot.on("text", async (ctx) => {
-  const link = ctx.message.text;
-
+  console.log("Отримано повідомлення:", ctx.message.text);
   try {
-    const { channel, postId } = parseTelegramLink(link);
+    const { channel, postId } = parseTelegramLink(ctx.message.text);
+    console.log("Парсинг успішний:", { channel, postId });
     ctx.reply(`Обробляю: ${channel}/${postId}...`);
 
+    await ensureClientConnected(client);
+    console.log("Клієнт готовий, отримую канал...");
     const channelEntity = await client.getEntity(channel);
+    console.log("Канал отримано:", channelEntity.title || channel);
+
     const comments = await getAllComments(client, channelEntity, postId);
+    console.log("Отримано коментарів:", comments.length);
 
     if (comments.length === 0) {
       ctx.reply("Коментарів не знайдено.");
@@ -138,19 +163,31 @@ bot.on("text", async (ctx) => {
       ctx.reply(`Відповідь не у форматі JSON:\n${analysis}`);
     }
   } catch (error) {
+    console.error("Помилка в обробці:", error);
     ctx.reply(`Помилка: ${error.message}`);
   }
 });
 
-bot.launch();
-console.log("Бот запущений!");
+bot
+  .launch()
+  .then(() => console.log("Бот запущений!"))
+  .catch((error) => console.error("Помилка запуску бота:", error));
 
 app.get("/", (req, res) => {
-  console.log("Request received!");
+  console.log("Request received from UptimeRobot!");
   res.send("Bot is running!");
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running`);
+  console.log(`Server is running on port ${PORT}`);
+});
+
+process.once("SIGINT", () => {
+  bot.stop("SIGINT");
+  client.disconnect();
+});
+process.once("SIGTERM", () => {
+  bot.stop("SIGTERM");
+  client.disconnect();
 });
