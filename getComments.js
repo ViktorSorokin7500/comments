@@ -91,7 +91,7 @@ async function analyzeCommentsWithRetry(comments) {
         {
           model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 10000,
+          max_tokens: 16000,
           temperature: 0.7,
         },
         {
