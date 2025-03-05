@@ -66,7 +66,7 @@ async function getAllComments(client, channel, postId) {
       allMessages.push(...messages);
 
       offsetId = messages[messages.length - 1].id;
-      await sleep(2000); // Збільшено затримку до 2 секунд
+      await sleep(500);
     }
   } catch (error) {
     console.error("Помилка отримання коментарів:", error);
@@ -78,85 +78,52 @@ async function getAllComments(client, channel, postId) {
 
 async function analyzeCommentsWithRetry(comments) {
   const maxRetries = 5;
-  const batchSize = 20; // Обмежуємо до 20 коментарів за батч
-  const batches = [];
-  for (let i = 0; i < comments.length; i += batchSize) {
-    batches.push(comments.slice(i, i + batchSize));
-  }
+  let attempts = 0;
 
-  const results = [];
-  for (const batch of batches) {
-    let attempts = 0;
-    const prompt = `Проаналізуй подані коментарі та розподіли їх за категоріями (5-6 штук). Поверни JSON із масивом об’єктів: { title: "", description: "", percentage: 0 }. Відповідь має бути виключно українською мовою. У полі "description" надавай стислий але максимально детальний опис змісту коментарів. Процентне співвідношення вказуй на основі частки коментарів у кожній категорії від загальної кількості в цьому батчі. Ось коментарі: \n${batch
-      .map((c) => `- ${c}`)
-      .join("\n")}`;
+  const prompt = `Проаналізуй подані коментарі та розподіли їх за категоріями (5-6 штук). Поверни JSON із масивом об’єктів: { title: "", description: "", percentage: 0 }. Відповідь має бути виключно українською мовою (заголовки та описи українською). У полі "description" надавай стислий але максимально детальний і розгорнутий опис змісту коментарів, що належать до кожної категорії. Процентне співвідношення (percentage) вказуй на основі частки коментарів у кожній категорії від загальної кількості. Ось коментарі: \n${comments
+    .map((c) => `- ${c}`)
+    .join("\n")}`;
 
-    while (attempts < maxRetries) {
-      try {
-        const response = await axios.post(
-          "https://api.together.xyz/v1/chat/completions",
-          {
-            model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 16000,
-            temperature: 0.7,
+  while (attempts < maxRetries) {
+    try {
+      const response = await axios.post(
+        "https://api.together.xyz/v1/chat/completions",
+        {
+          model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 16000,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${TOGETHER_API_KEY}`,
+            "Content-Type": "application/json",
           },
-          {
-            headers: {
-              Authorization: `Bearer ${TOGETHER_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            timeout: 180000, // Збільшено до 3 хвилин
-          }
-        );
-
-        const content = response.data.choices[0].message.content;
-        console.log("Отримано відповідь від Together API для батчу:", content);
-        const parsed = JSON.parse(content);
-        results.push(parsed);
-        break; // Успішно, виходимо з циклу спроб
-      } catch (error) {
-        attempts++;
-        const errorDetails = error.response
-          ? error.response.data
-          : error.message;
-        console.error(
-          `Помилка аналізу батчу, спроба ${attempts} з ${maxRetries}:`,
-          errorDetails
-        );
-        if (attempts >= maxRetries) {
-          throw new Error(`Не вдалося проаналізувати батч: ${errorDetails}`);
+          timeout: 120000, // 2 хвилини
         }
-        await sleep(2000); // Затримка між повторними спробами
+      );
+
+      const content = response.data.choices[0].message.content;
+      console.log("Отримано відповідь від Together API:", content);
+      try {
+        return JSON.parse(content);
+      } catch (e) {
+        console.error("Відповідь не у форматі JSON:", content);
+        return content;
       }
+    } catch (error) {
+      attempts++;
+      const errorDetails = error.response ? error.response.data : error.message;
+      console.error(
+        `Помилка аналізу, спроба ${attempts} з ${maxRetries}:`,
+        errorDetails
+      );
+      if (attempts >= maxRetries) {
+        throw new Error(`Не вдалося проаналізувати коментарі: ${errorDetails}`);
+      }
+      await sleep(2000);
     }
-    await sleep(2000); // Затримка між батчами
   }
-
-  // Об'єднання результатів
-  return combineResults(results, comments.length);
-}
-
-function combineResults(results, totalComments) {
-  const categoryMap = new Map();
-  results.forEach((batch) => {
-    batch.forEach((cat) => {
-      const existing = categoryMap.get(cat.title) || {
-        count: 0,
-        description: cat.description,
-      };
-      existing.count += (cat.percentage / 100) * batch.length; // Підрахунок кількості коментарів
-      categoryMap.set(cat.title, existing);
-    });
-  });
-
-  return Array.from(categoryMap.entries()).map(
-    ([title, { count, description }]) => ({
-      title,
-      description,
-      percentage: Math.round((count / totalComments) * 100),
-    })
-  );
 }
 
 client
